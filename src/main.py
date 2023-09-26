@@ -140,6 +140,7 @@ def process_eeg_file(eeg_file):
         preload=True,
     )
     data = epochs.get_data()
+    
     settings["sfreq"] = epochs.info["sfreq"]
     settings["n_channels"] = epochs.info["nchan"]
     settings["ch_names"] = epochs.info["ch_names"]
@@ -285,7 +286,6 @@ subjects = pd.read_csv(os.path.join(download_path, "participants.tsv"), sep="\t"
 
 # Iterate over subjects and download/process EEG data
 for subject in subjects:
-    # subject = subjects[0]
     eeg_file = f"{subject}/ses-01/eeg/{subject}_ses-01_task-RSVP_run-01_eeg.edf"
     eeg_file_path = os.path.join(download_path, eeg_file)
     
@@ -294,15 +294,13 @@ for subject in subjects:
     on.download(dataset=dataset_id, target_dir=download_path, include=[f"{subject}/*"]) 
 
     # Process EEG file
-    # eeg_file = eeg_file_path
     X, labels = process_eeg_file(eeg_file_path)
     
     # Split data into train and test sets (adjust as needed)
     X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, labels, test_size=0.25, random_state=42)
     
     # Train and evaluate models
-    # model_names = ["LogisticRegression", "SVM", "LDA", "RandomForest"]
-    model_names = ["RandomForest"]
+    model_names = ["LogisticRegression", "SVM", "LDA", "RandomForest"]
     for model_name in model_names:
         print(f"Training {model_name} for subject {subject}...")
         print(f"======== Chance Level: {sum(y_train)/len(y_train)*100:.4f}")
