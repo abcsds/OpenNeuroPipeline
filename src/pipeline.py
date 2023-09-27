@@ -162,7 +162,7 @@ class ONPipeline:
         # Get the best estimator and store it in a pickle file
         if settings["store_models"]:
             best_model = optuna_search.best_estimator_
-            model_file = os.path.join(self.settings["outf"], "models", f"{model_name.lower()}.pkl")
+            model_file = os.path.join(self.settings["outf"], "models", f"{model_name.lower()}_{subj}.pkl")
             os.makedirs(os.path.dirname(model_file), exist_ok=True)
             with open(model_file, "wb") as f:
                 pickle.dump(best_model, f)
@@ -219,21 +219,35 @@ class ONPipeline:
     def run(self):
         # Iterate over subjects and download/process EEG data
         for subject in self.subjects:
-            eeg_file = f"{subject}/ses-01/eeg/{subject}_ses-01_task-RSVP_run-01_eeg.edf"
-            eeg_file_path = os.path.join(self.download_path, eeg_file)
-            
-            # Download EEG file
-            print(f"Downloading EEG file for subject {subject}...")
-            on.download(dataset=dataset_id, target_dir=self.download_path, include=[f"{subject}/*"]) 
+            feat_file = os.path.join(self.settings["outf"], "features", f"features_{subject}.npy")
+            label_file = os.path.join(self.settings["outf"], "features", f"labels_{subject}.npy")
+            if os.path.exists(feat_file):
+                print(f"Features for subject {subject} already exist, skipping...")
+                X = np.load(feat_file)
+                labels = np.load(label_file)
+            else:
+                eeg_file = f"{subject}/ses-01/eeg/{subject}_ses-01_task-RSVP_run-01_eeg.edf"
+                eeg_file_path = os.path.join(self.download_path, eeg_file)
+                
+                # Download EEG file
+                print(f"Downloading EEG file for subject {subject}...")
+                on.download(dataset=dataset_id, target_dir=self.download_path, include=[f"{subject}/*"]) 
 
-            # Process EEG file
-            X, labels = self.process_eeg_file(eeg_file_path)
+                # Process EEG file
+                X, labels = self.process_eeg_file(eeg_file_path)
+
+                # Store features
+                if settings["store_features"]:
+                    os.makedirs(os.path.dirname(feat_file), exist_ok=True)
+                    np.save(feat_file, X)
+                    np.save(label_file, labels)
             
             # Split data into train and test sets (adjust as needed)
             X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, labels, test_size=0.25, random_state=42)
             
             # Train and evaluate models
-            model_names = ["LogisticRegression", "SVM", "LDA", "RandomForest"]
+            # model_names = ["LogisticRegression", "SVM", "LDA", "RandomForest"]
+            model_names = ["LogisticRegression", "RandomForest"]
             for model_name in model_names:
                 print(f"Training {model_name} for subject {subject}...")
                 print(f"======== Chance Level: {sum(y_train)/len(y_train)*100:.4f}")
@@ -250,10 +264,11 @@ class ONPipeline:
                     feat_names = self.get_feature_names(X.shape[1], self.settings["selected_feats"], self.settings["eeg_ch_names"])
                     # best_features = np.argsort(clf.feature_importances_)[::-1]
                     df_feat_importance = pd.DataFrame({"feature": feat_names, "importance": clf.feature_importances_}).sort_values("importance", ascending=False)
+                    # df_feat_importance = pd.DataFrame({"feature": feat_names, "importance": clf.feature_importances_, "subj": subj}).sort_values("importance", ascending=False)
                     df_feat_importance.to_csv(os.path.join(self.settings["outf"], f"ML_RFC_feat_importance_{subject}.csv"), index=False)
 
                 # Save results
-                results_file = os.path.join(self.settings["outf"], f"results_{subject}.csv")
+                results_file = os.path.join(self.settings["outf"], f"results.csv")
                 res_df = pd.DataFrame({
                     "subject": subject, 
                     "model": model_name, 
@@ -268,9 +283,9 @@ class ONPipeline:
                     res_df.to_csv(results_file, mode="a", header=False, index=False)
                 else:
                     res_df.to_csv(results_file, index=False)
-            # Make space for the next subject
-            shutil.rmtree(os.path.join(self.download_path, subject), ignore_errors=True)
-
+            if settings["light_storage"]:
+                # Make space for the next subject
+                shutil.rmtree(os.path.join(self.download_path, subject), ignore_errors=True)
         with open(os.path.join(self.settings["outf"], "settings.json"), "w") as f:
             json.dump(self.settings, f, indent=4)
 
@@ -294,6 +309,8 @@ if __name__ == "__main__":
     settings = {
         "rs": 42,
         "store_models": True,
+        "store_features": True,
+        "light_storage": True,
         "l_freq": 1, 
         "h_freq": 40,
         "notch_filter": 50,
