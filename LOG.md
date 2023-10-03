@@ -18,3 +18,16 @@ Posible upgrade:
 Feature distance between subjects with k<=0 and k>0
 
 Update pipeline: store features.
+
+# 28 Sep
+Pipeline: Fix saving settings by removing the relabeling function. EEG info is loaded from raw if the features have been extracted already.
+Merge result files: `results.csv`.
+Add feature importance normalization by kappa.
+
+# 29 Sep
+Catch optuna internal storage error. Probably from NaNs in LDA solver. Pipeline running...
+
+# 03 Oct
+Fix settings not storing feat_names. Add visualizations script.
+Update pipeline eeg preprocessing to match `abstract`.
+Commiting results before re-running pipeline.

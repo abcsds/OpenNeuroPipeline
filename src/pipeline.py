@@ -24,16 +24,18 @@ from sklearn.svm import SVC
 
 
 class ONPipeline:
-    def __init__(self, dataset_id, settings, download_path="./data"):
+    def __init__(self, dataset_id, settings, download_path="./data", relabel_func=None):
         # Download participant data
         self.download_path = download_path
-        if os.path.exists(download_path):
-            shutil.rmtree(download_path, ignore_errors=True)
+        # if os.path.exists(download_path):
+        #     shutil.rmtree(download_path, ignore_errors=True)
         on.download(dataset=dataset_id, target_dir=download_path, include=["participants.tsv", "participants.json"])
 
         # List all subjects in the dataset
         self.subjects = pd.read_csv(os.path.join(download_path, "participants.tsv"), sep="\t")["participant_id"].values
 
+        if relabel_func:
+            self.relabel_func = relabel_func
         # Define settings
         self.settings = settings
 
@@ -41,15 +43,43 @@ class ONPipeline:
     # Define EEG file processing functions
     def process_eeg_file(self, eeg_file):
         raw = mne.io.read_raw_edf(eeg_file, preload=True)
+        subject = eeg_file.split("/")[0]
+
+        ## Interpolate bad channels
+        if settings["subj"][subject]["bads"]:
+            raw.info["bads"] = settings["bads"]
+            raw.interpolate_bads()
+        
+        ## Drop channels
         if self.settings["drop_channels"]:
             raw = raw.drop_channels(self.settings["drop_channels"])
+
+        ## Blink removal
+        # FIXME: not working for all subjects
+        # mne.set_bipolar_reference(
+        #     inst=raw,
+        #     anode='EOGD',
+        #     cathode='EOGU',
+        #     ch_name="HEOG",
+        #     drop_refs=True,  # drop anode and cathode from the data
+        #     copy=False  # modify in-place
+        # )
+        # mne.set_bipolar_reference(
+        #     inst=raw,
+        #     anode='EOGL',
+        #     cathode='EOGR',
+        #     ch_name="VEOG",
+        #     drop_refs=True,  # drop anode and cathode from the data
+        #     copy=False  # modify in-place
+        # )
+        raw.drop_channels(["EOGD", "EOGU", "EOGL", "EOGR"])
+        # raw.set_channel_types({"HEOG": "eog", "VEOG": "eog"})
+        # eog_epochs = mne.preprocessing.create_eog_epochs(raw, baseline=(-0.5, -0.2), ch_name=["EOGU", "EOGD"], reject_by_annotation=False)
+
+        ## Set montage
         if self.settings["montage"]:
             raw.set_montage(self.settings["montage"])
-        if self.settings["bads"]:
-            raw.info["bads"] = self.settings["bads"]
-            raw.interpolate_bads()
-            # raw.interpolate_bads(, exclude=self.settings["eog_channels"] + self.settings["stim_channels"] + self.settings["ecg_channels"] + self.settings["misc_channels"])
-        raw.pick_types(eeg=True, stim=False, exclude='bads')
+
         ## Filtering
         if self.settings["notch_filter"]:
             raw.notch_filter(self.settings["notch_filter"])
@@ -59,27 +89,32 @@ class ONPipeline:
             raw.filter(l_freq=self.settings["l_freq"])
         elif self.settings["h_freq"]:
             raw.filter(h_freq=self.settings["h_freq"])
+
         ## Rereferencing
         if self.settings["CAR"]:
             mne.set_eeg_reference(raw, 'average', ch_type="eeg", copy=False)
             # raw.plot()
+        
         ## Epoching
         events, event_dict = mne.events_from_annotations(raw)
         assert len(events) == len(set(i["onset"] for i in raw.annotations)), f"Annotations share onset {eeg_file}"
         assert np.abs(np.diff([i["onset"] for i in raw.annotations])).min() > 0.0, f"Annotations share onset {eeg_file}"
 
-        if self.settings["relabel_func"]:
-            events, event_dict = self.settings["relabel_func"](events, event_dict)
+        if self.relabel_func:
+            events, event_dict = self.relabel_func(events, event_dict)
 
         epochs = mne.Epochs(raw, events,
-            event_id=event_dict,
-            tmin=self.settings["tmin"],
-            tmax=self.settings["tmax"],
-            baseline=self.settings["baseline"],
-            preload=True,
-        )
+                            event_id=event_dict,
+                            tmin=self.settings["tmin"],
+                            tmax=self.settings["tmax"],
+                            baseline=self.settings["baseline"],
+                            reject=settings["reject_criteria"],
+                            flat=settings["flat_criteria"],
+                            picks="eeg",
+                            preload=True,
+                            )
         data = epochs.get_data()
-        # Assumption: All subjects have the same setup
+
         self.settings["sfreq"] = epochs.info["sfreq"]
         self.settings["n_channels"] = epochs.info["nchan"]
         self.settings["ch_names"] = epochs.info["ch_names"]
@@ -91,12 +126,12 @@ class ONPipeline:
             selected_feats = self.settings["selected_feats"]
         else:
             selected_feats =  get_univariate_func_names() + get_bivariate_func_names()
-        
+
         # Extract features
         feat_extractor = Pipeline([
             ('fe', FeatureExtractor(sfreq=self.settings["sfreq"], selected_funcs=selected_feats)),
             ('scaler', StandardScaler()),
-        ])
+            ])
 
         # Time and extract feature space size
         tic = time.time()
@@ -156,19 +191,20 @@ class ONPipeline:
         optuna_search = optuna.integration.OptunaSearchCV(
             clf, param_distributions, n_trials=100, verbose=0, study=study, n_jobs=-1, timeout=60*10,
         )
-        optuna_search.fit(X, y)
-        print("Optuna search finished")
-
-        # Get the best estimator and store it in a pickle file
-        if settings["store_models"]:
-            best_model = optuna_search.best_estimator_
-            model_file = os.path.join(self.settings["outf"], "models", f"{model_name.lower()}_{subj}.pkl")
-            os.makedirs(os.path.dirname(model_file), exist_ok=True)
-            with open(model_file, "wb") as f:
-                pickle.dump(best_model, f)
-
-        return best_model
-
+        try:
+            optuna_search.fit(X, y)
+            print("Optuna search finished")
+            # Get the best estimator and store it in a pickle file
+            if settings["store_models"]:
+                best_model = optuna_search.best_estimator_
+                model_file = os.path.join(self.settings["outf"], "models", f"{model_name.lower()}_{subj}.pkl")
+                os.makedirs(os.path.dirname(model_file), exist_ok=True)
+                with open(model_file, "wb") as f:
+                    pickle.dump(best_model, f)
+            return best_model
+        except (optuna.exceptions.StorageInternalError, AssertionError):
+            print("Optuna search failed")
+            return None
 
     def evaluate_model(self, clf, X_test, y_test):
         y_pred = clf.predict(X_test)
@@ -213,7 +249,7 @@ class ONPipeline:
                 raise ValueError(f"Invalid feature name: {feat}")
         feat_names = np.hstack(feat_dict.values())
         assert len(feat_names) == n_feats
-        self.settings["feat_names"] = feat_names
+        self.settings["feat_names"] = feat_names.tolist()
         return feat_names
 
     def run(self):
@@ -221,21 +257,25 @@ class ONPipeline:
         for subject in self.subjects:
             feat_file = os.path.join(self.settings["outf"], "features", f"features_{subject}.npy")
             label_file = os.path.join(self.settings["outf"], "features", f"labels_{subject}.npy")
-            if os.path.exists(feat_file):
-                print(f"Features for subject {subject} already exist, skipping...")
-                X = np.load(feat_file)
-                labels = np.load(label_file)
-            else:
-                eeg_file = f"{subject}/ses-01/eeg/{subject}_ses-01_task-RSVP_run-01_eeg.edf"
-                eeg_file_path = os.path.join(self.download_path, eeg_file)
-                
+            eeg_file = f"{subject}/ses-01/eeg/{subject}_ses-01_task-RSVP_run-01_eeg.edf"
+            eeg_file_path = os.path.join(self.download_path, eeg_file)
+            if not os.path.exists(eeg_file_path):
                 # Download EEG file
                 print(f"Downloading EEG file for subject {subject}...")
                 on.download(dataset=dataset_id, target_dir=self.download_path, include=[f"{subject}/*"]) 
-
+            if os.path.exists(feat_file):
+                print(f"Features for subject {subject} already exist, skipping feature extraction...")
+                raw = mne.io.read_raw_edf(eeg_file_path, preload=True)
+                self.settings["ch_names"] = raw.info["ch_names"]
+                info = raw.drop_channels(self.settings["drop_channels"]).info
+                self.settings["sfreq"] = info["sfreq"]
+                self.settings["n_channels"] = info["nchan"]
+                self.settings["eeg_ch_names"] = info["ch_names"]
+                X = np.load(feat_file)
+                labels = np.load(label_file)
+            else:
                 # Process EEG file
                 X, labels = self.process_eeg_file(eeg_file_path)
-
                 # Store features
                 if settings["store_features"]:
                     os.makedirs(os.path.dirname(feat_file), exist_ok=True)
@@ -247,11 +287,14 @@ class ONPipeline:
             
             # Train and evaluate models
             # model_names = ["LogisticRegression", "SVM", "LDA", "RandomForest"]
-            model_names = ["LogisticRegression", "RandomForest"]
+            model_names = ["LogisticRegression", "LDA", "RandomForest"]
+            # model_names = ["SVM"]
             for model_name in model_names:
                 print(f"Training {model_name} for subject {subject}...")
                 print(f"======== Chance Level: {sum(y_train)/len(y_train)*100:.4f}")
                 clf = self.train_model(X_train, y_train, model_name, subject)
+                if clf is None:
+                    continue
                 accuracy, precision, recall, f1, cohen_kappa = self.evaluate_model(clf, X_test, y_test)
                 print(f"Results for {model_name} on subject {subject}:")
                 print(f"  Accuracy: {accuracy:.2f}")
@@ -302,6 +345,7 @@ def relabel(events, event_dict):
         if i not in l:
             l[i] = 0
     e[idx,2] = np.array([l[reverse_event_dict[i]] for i in events[idx,2]])
+    l = {"HAPV":1, "Rest":0}
     return e[idx,:], l
 
 if __name__ == "__main__":
@@ -311,12 +355,13 @@ if __name__ == "__main__":
         "store_models": True,
         "store_features": True,
         "light_storage": True,
-        "l_freq": 1, 
-        "h_freq": 40,
+        "l_freq": 0.1, 
+        "h_freq": 30,
         "notch_filter": 50,
-        "CAR": False,
+        "CAR": True,
         "bads": [],
         "outf": "./results/",
+        # "eeg_channels": ['Fp1', 'Fz', 'F3', 'F7', 'FC5', 'FC1', 'Cz', 'C3', 'T7', 'CP5', 'CP1', 'P3', 'P7', 'Pz', 'O1', 'Oz', 'O2', 'P4', 'P8', 'CP6', 'CP2', 'C4', 'T8', 'FC6', 'FC2', 'F4', 'F8', 'Fp2']
         "drop_channels": ['EOGR', 'EOGU', 'EOGD', 'EOGL', 'ECG', 'GSR', 'x_dir', 'y_dir', 'z_dir', 'MkIdx'],
         "eog_channels": ["EOGU", "EOGD", "EOGL", "EOGR"],
         "stim_channels": ["MkIdx"],
@@ -327,8 +372,8 @@ if __name__ == "__main__":
         "tmin": -0.2,
         "tmax": 5.0,
         "baseline": [-0.2, 0.0],
-        # Relabeling
-        "relabel_func": relabel,
+        "reject_criteria": dict(eeg=500e-6),
+        "flat_criteria": dict(eeg=1e-7),
         # Features
         "selected_feats": [
             "mean",  # chnn,
@@ -364,8 +409,36 @@ if __name__ == "__main__":
             "time_corr",  # mv_chs,
             "spect_corr",  # mv_chs,
             ],
+            "subj": {
+                'sub-01':{"bads": []},
+                'sub-02':{"bads": ["T8"]}, # Noisy channel
+                'sub-03':{"bads": ["FC6"]}, # Flat channel
+                'sub-04':{"bads": []},
+                'sub-05':{"bads": []},
+                'sub-06':{"bads": []},
+                'sub-07':{"bads": ["FC6"]}, # Noisy channel
+                'sub-08':{"bads": []},
+                'sub-09':{"bads": []},
+                'sub-10':{"bads": ["O1", "O2", "Oz"]}, # Noisy channels
+                'sub-11':{"bads": []},
+                'sub-12':{"bads": []},
+                'sub-13':{"bads": []},
+                'sub-14':{"bads": []},
+                'sub-15':{"bads": []},
+                'sub-16':{"bads": []},
+                'sub-17':{"bads": []},
+                'sub-18':{"bads": []},
+                'sub-19':{"bads": []},
+                'sub-20':{"bads": []},
+                'sub-21':{"bads": []},
+                'sub-22':{"bads": []},
+                'sub-23':{"bads": []},
+                'sub-24':{"bads": ["Cz"]}, # Flat channel
+                'sub-25':{"bads": []},
+                'sub-26':{"bads": []}
+            }
         }
     # Define the dataset ID and download path
     dataset_id = "ds004324"
-    pipe = ONPipeline(dataset_id, settings)
+    pipe = ONPipeline(dataset_id, settings, relabel_func=relabel)
     pipe.run()
