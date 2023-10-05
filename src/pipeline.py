@@ -12,6 +12,7 @@ import optuna
 import pandas as pd
 import seaborn as sns
 import sklearn
+# from mne.connectivity import spectral_pdc
 from mne_features.feature_extraction import (FeatureExtractor,
                                              get_bivariate_func_names,
                                              get_univariate_func_names)
@@ -43,12 +44,7 @@ class ONPipeline:
     # Define EEG file processing functions
     def process_eeg_file(self, eeg_file):
         raw = mne.io.read_raw_edf(eeg_file, preload=True)
-        subject = eeg_file.split("/")[0]
-
-        ## Interpolate bad channels
-        if settings["subj"][subject]["bads"]:
-            raw.info["bads"] = settings["bads"]
-            raw.interpolate_bads()
+        subject = eeg_file.split("/")[-4]
         
         ## Drop channels
         if self.settings["drop_channels"]:
@@ -75,10 +71,15 @@ class ONPipeline:
         raw.drop_channels(["EOGD", "EOGU", "EOGL", "EOGR"])
         # raw.set_channel_types({"HEOG": "eog", "VEOG": "eog"})
         # eog_epochs = mne.preprocessing.create_eog_epochs(raw, baseline=(-0.5, -0.2), ch_name=["EOGU", "EOGD"], reject_by_annotation=False)
-
+        
         ## Set montage
         if self.settings["montage"]:
             raw.set_montage(self.settings["montage"])
+
+        ## Interpolate bad channels
+        if settings["subj"][subject]["bads"]:
+            raw.info["bads"] = settings["subj"][subject]["bads"]
+            raw.interpolate_bads()
 
         ## Filtering
         if self.settings["notch_filter"]:
@@ -108,7 +109,7 @@ class ONPipeline:
                             tmin=self.settings["tmin"],
                             tmax=self.settings["tmax"],
                             baseline=self.settings["baseline"],
-                            reject=settings["reject_criteria"],
+                            # reject=settings["reject_criteria"],
                             flat=settings["flat_criteria"],
                             picks="eeg",
                             preload=True,
@@ -252,6 +253,33 @@ class ONPipeline:
         self.settings["feat_names"] = feat_names.tolist()
         return feat_names
 
+
+    # def compute_partial_directed_coherence(arr):
+    #     """Compute Partial Directed Coherence as features from an ndarray.
+
+    #     Parameters
+    #     ----------
+    #     arr : ndarray, shape (n_channels, n_times)
+    #         EEG/MEG data.
+
+    #     sfreq : float
+    #         Sampling frequency in Hz.
+
+    #     Returns
+    #     -------
+    #     pdc_features : ndarray, shape (n_channels, n_channels, n_freqs)
+    #         Partial Directed Coherence features for each frequency.
+    #     """
+    #     # Compute the Power Spectral Density (PSD) using Welch's method
+    #     fmin = self.settings["l_freq"]  # Minimum frequency
+    #     fmax = self.settings["h_freq"]  # Maximum frequency
+    #     f, psd = spectral_pdc(arr, fmin=fmin, fmax=fmax, sfreq=self.settings["sfreq"])
+
+    #     # Compute the Partial Directed Coherence (PDC)
+    #     pdc, freqs, times, n_epochs, n_tapers = spectral_pdc(psd, sfreq=self.settings["sfreq"])
+
+        return pdc
+
     def run(self):
         # Iterate over subjects and download/process EEG data
         for subject in self.subjects:
@@ -335,17 +363,26 @@ class ONPipeline:
 
 # Re-labeling function: Used to edit the markers in the EEG data
 def relabel(events, event_dict):
-    n = events.shape[0]
-    idx = [i % 5 == 0 for i in range(n)] #
     e = events.copy()
     reverse_event_dict = {v: k for k,v in event_dict.items()}
-    labels = set([reverse_event_dict[i] for i in e[idx, 2]])
-    l = {l: int(l.split("/")[1] == "1") for l in labels if "/" in l} # Selecting only HAPV vs Rest
-    for i in labels:
-        if i not in l:
-            l[i] = 0
-    e[idx,2] = np.array([l[reverse_event_dict[i]] for i in events[idx,2]])
+    labels = [reverse_event_dict[i] for i in events[:,2]]
+    # Remove all events that are not experimental conditions
+    idx = [True if "/" in label else False for label in labels]
+    e = e[idx,:]
+    # Tag all HAPV events as 1 and Rest events as 0
+    labels = [reverse_event_dict[i] for i in e[:,2]]
+    idx = []
+    for label in labels:
+        if label.split("/")[1]=="1": # Select HAPV
+            idx.append(True)
+        else:
+            idx.append(False)
     l = {"HAPV":1, "Rest":0}
+    idx = np.array(idx)
+    e[idx,2] = l["HAPV"]
+    e[~idx,2] = l["Rest"]
+    # Keep only every 5th event
+    idx = np.arange(0, len(e), 5)
     return e[idx,:], l
 
 if __name__ == "__main__":
@@ -354,7 +391,7 @@ if __name__ == "__main__":
         "rs": 42,
         "store_models": True,
         "store_features": True,
-        "light_storage": True,
+        "light_storage": False,
         "l_freq": 0.1, 
         "h_freq": 30,
         "notch_filter": 50,
@@ -362,7 +399,7 @@ if __name__ == "__main__":
         "bads": [],
         "outf": "./results/",
         # "eeg_channels": ['Fp1', 'Fz', 'F3', 'F7', 'FC5', 'FC1', 'Cz', 'C3', 'T7', 'CP5', 'CP1', 'P3', 'P7', 'Pz', 'O1', 'Oz', 'O2', 'P4', 'P8', 'CP6', 'CP2', 'C4', 'T8', 'FC6', 'FC2', 'F4', 'F8', 'Fp2']
-        "drop_channels": ['EOGR', 'EOGU', 'EOGD', 'EOGL', 'ECG', 'GSR', 'x_dir', 'y_dir', 'z_dir', 'MkIdx'],
+        "drop_channels": ['ECG', 'GSR', 'x_dir', 'y_dir', 'z_dir', 'MkIdx'],
         "eog_channels": ["EOGU", "EOGD", "EOGL", "EOGR"],
         "stim_channels": ["MkIdx"],
         "ecg_channels": ["ECG"],
@@ -421,11 +458,11 @@ if __name__ == "__main__":
                 'sub-09':{"bads": []},
                 'sub-10':{"bads": ["O1", "O2", "Oz"]}, # Noisy channels
                 'sub-11':{"bads": []},
-                'sub-12':{"bads": []},
+                'sub-12':{"bads": ["O1", "O2", "Oz"]}, # Noisy channels
                 'sub-13':{"bads": []},
                 'sub-14':{"bads": []},
                 'sub-15':{"bads": []},
-                'sub-16':{"bads": []},
+                'sub-16':{"bads": ["CP1"]}, # Noisy channel
                 'sub-17':{"bads": []},
                 'sub-18':{"bads": []},
                 'sub-19':{"bads": []},
