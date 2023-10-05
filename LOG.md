@@ -31,3 +31,12 @@ Catch optuna internal storage error. Probably from NaNs in LDA solver. Pipeline 
 Fix settings not storing feat_names. Add visualizations script.
 Update pipeline eeg preprocessing to match `abstract`.
 Commiting results before re-running pipeline.
+Add pdc.
+
+# 04 Oct
+Remove epoch rejection by ptp amplitude.
+
+# 05 Oct
+Bug in relabel function. Have to redo all studies.
+Add visualization scripts for different relabeling.
+Change relabel function in pipeline. Rerun pipeline.
