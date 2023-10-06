@@ -40,3 +40,7 @@ Remove epoch rejection by ptp amplitude.
 Bug in relabel function. Have to redo all studies.
 Add visualization scripts for different relabeling.
 Change relabel function in pipeline. Rerun pipeline.
+
+# 06 Oct
+Bad channel visual inspection from 5-second epochs.
+Create condition classification pipeline.

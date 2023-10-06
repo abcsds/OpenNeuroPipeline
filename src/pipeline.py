@@ -68,7 +68,7 @@ class ONPipeline:
         #     drop_refs=True,  # drop anode and cathode from the data
         #     copy=False  # modify in-place
         # )
-        raw.drop_channels(["EOGD", "EOGU", "EOGL", "EOGR"])
+        # raw = raw.drop_channels(["EOGD", "EOGU", "EOGL", "EOGR"])
         # raw.set_channel_types({"HEOG": "eog", "VEOG": "eog"})
         # eog_epochs = mne.preprocessing.create_eog_epochs(raw, baseline=(-0.5, -0.2), ch_name=["EOGU", "EOGD"], reject_by_annotation=False)
         
@@ -169,13 +169,13 @@ class ONPipeline:
         elif model_name == "SVM":
             param_distributions = {
                 "C": optuna.distributions.FloatDistribution(1e-10, 1e10, log=True),
-                "kernel": optuna.distributions.CategoricalDistribution(["linear", "poly", "rbf", "sigmoid"]),
+                "kernel": optuna.distributions.CategoricalDistribution(["linear", "poly"]),
                 "degree": optuna.distributions.IntDistribution(1, 5),
                 "gamma": optuna.distributions.FloatDistribution(1e-10, 1e10, log=True),
             }
         elif model_name == "LDA":
             param_distributions = {
-                "solver": optuna.distributions.CategoricalDistribution(["svd", "lsqr", "eigen"]),
+                "solver": optuna.distributions.CategoricalDistribution(["svd", "lsqr"]),
             }
         elif model_name == "RandomForest":
             param_distributions = {
@@ -190,7 +190,8 @@ class ONPipeline:
         
         # Use OptunaSearchCV for hyperparameter tuning
         optuna_search = optuna.integration.OptunaSearchCV(
-            clf, param_distributions, n_trials=100, verbose=0, study=study, n_jobs=-1, timeout=60*10,
+            clf, param_distributions, n_trials=100, verbose=0, study=study, n_jobs=-1,
+            timeout=60*10, scoring=sklearn.metrics.make_scorer(sklearn.metrics.cohen_kappa_score)
         )
         try:
             optuna_search.fit(X, y)
@@ -248,8 +249,8 @@ class ONPipeline:
                 feat_dict[feat] = [f"{feat}_{i}" for i in mv_chs]
             else:
                 raise ValueError(f"Invalid feature name: {feat}")
-        feat_names = np.hstack(feat_dict.values())
-        assert len(feat_names) == n_feats
+        feat_names = np.hstack(np.fromiter(feat_dict.values(), dtype=object))
+        assert len(feat_names) == n_feats, f"Number of features ({n_feats}) does not match number of feature names ({len(feat_names)})"
         self.settings["feat_names"] = feat_names.tolist()
         return feat_names
 
@@ -399,7 +400,7 @@ if __name__ == "__main__":
         "bads": [],
         "outf": "./results/",
         # "eeg_channels": ['Fp1', 'Fz', 'F3', 'F7', 'FC5', 'FC1', 'Cz', 'C3', 'T7', 'CP5', 'CP1', 'P3', 'P7', 'Pz', 'O1', 'Oz', 'O2', 'P4', 'P8', 'CP6', 'CP2', 'C4', 'T8', 'FC6', 'FC2', 'F4', 'F8', 'Fp2']
-        "drop_channels": ['ECG', 'GSR', 'x_dir', 'y_dir', 'z_dir', 'MkIdx'],
+        "drop_channels": ["EOGD", "EOGU", "EOGL", "EOGR", 'ECG', 'GSR', 'x_dir', 'y_dir', 'z_dir', 'MkIdx'],
         "eog_channels": ["EOGU", "EOGD", "EOGL", "EOGR"],
         "stim_channels": ["MkIdx"],
         "ecg_channels": ["ECG"],
@@ -448,21 +449,21 @@ if __name__ == "__main__":
             ],
             "subj": {
                 'sub-01':{"bads": []},
-                'sub-02':{"bads": ["T8"]}, # Noisy channel
-                'sub-03':{"bads": ["FC6"]}, # Flat channel
+                'sub-02':{"bads": []},
+                'sub-03':{"bads": []},
                 'sub-04':{"bads": []},
                 'sub-05':{"bads": []},
                 'sub-06':{"bads": []},
-                'sub-07':{"bads": ["FC6"]}, # Noisy channel
+                'sub-07':{"bads": []},
                 'sub-08':{"bads": []},
                 'sub-09':{"bads": []},
-                'sub-10':{"bads": ["O1", "O2", "Oz"]}, # Noisy channels
+                'sub-10':{"bads": []},
                 'sub-11':{"bads": []},
-                'sub-12':{"bads": ["O1", "O2", "Oz"]}, # Noisy channels
+                'sub-12':{"bads": ["O1", "O2", "Oz"]},
                 'sub-13':{"bads": []},
                 'sub-14':{"bads": []},
                 'sub-15':{"bads": []},
-                'sub-16':{"bads": ["CP1"]}, # Noisy channel
+                'sub-16':{"bads": ["CP1"]},
                 'sub-17':{"bads": []},
                 'sub-18':{"bads": []},
                 'sub-19':{"bads": []},
@@ -470,7 +471,7 @@ if __name__ == "__main__":
                 'sub-21':{"bads": []},
                 'sub-22':{"bads": []},
                 'sub-23':{"bads": []},
-                'sub-24':{"bads": ["Cz"]}, # Flat channel
+                'sub-24':{"bads": []},
                 'sub-25':{"bads": []},
                 'sub-26':{"bads": []}
             }

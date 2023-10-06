@@ -95,15 +95,15 @@ settings = {
         ],
         "subj": {
             'sub-01':{"bads": []},
-            'sub-02':{"bads": ["T8"]}, # Noisy channel
-            'sub-03':{"bads": ["FC6"]}, # Flat channel
+            'sub-02':{"bads": []},
+            'sub-03':{"bads": []},
             'sub-04':{"bads": []},
             'sub-05':{"bads": []},
             'sub-06':{"bads": []},
-            'sub-07':{"bads": ["FC6"]}, # Noisy channel
+            'sub-07':{"bads": []},
             'sub-08':{"bads": []},
             'sub-09':{"bads": []},
-            'sub-10':{"bads": ["O1", "O2", "Oz"]}, # Noisy channels
+            'sub-10':{"bads": []},
             'sub-11':{"bads": []},
             'sub-12':{"bads": ["O1", "O2", "Oz"]},
             'sub-13':{"bads": []},
@@ -117,7 +117,7 @@ settings = {
             'sub-21':{"bads": []},
             'sub-22':{"bads": []},
             'sub-23':{"bads": []},
-            'sub-24':{"bads": ["Cz"]}, # Flat channel
+            'sub-24':{"bads": []},
             'sub-25':{"bads": []},
             'sub-26':{"bads": []}
         }
