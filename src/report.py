@@ -17,6 +17,11 @@ files = [f for f in files if f.startswith("ML_RFC_feat_importance_") and f.endsw
 res_df = pd.read_csv(os.path.join(folder, "results.csv"))
 
 res_df.groupby("model")["cohen_kappa"].describe()
+
+scorers = ['accuracy', 'precision', 'recall', 'f1', 'cohen_kappa']
+# for scorer in scorers:
+#     res_df.groupby("model")[scorer].describe().to_csv(os.path.join(folder, f"results_summary_{scorer}.csv"), float_format="%.3f")
+
 # Plot distribution of different models
 fig, ax = plt.subplots(figsize=(16*plot_sf, 9*plot_sf))
 sns.violinplot(x="model", y="cohen_kappa", data=res_df, ax=ax, inner="stick")

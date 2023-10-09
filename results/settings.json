@@ -10,6 +10,10 @@
     "bads": [],
     "outf": "./results/",
     "drop_channels": [
+        "EOGD",
+        "EOGU",
+        "EOGL",
+        "EOGR",
         "ECG",
         "GSR",
         "x_dir",
@@ -83,14 +87,10 @@
             "bads": []
         },
         "sub-02": {
-            "bads": [
-                "T8"
-            ]
+            "bads": []
         },
         "sub-03": {
-            "bads": [
-                "FC6"
-            ]
+            "bads": []
         },
         "sub-04": {
             "bads": []
@@ -102,9 +102,7 @@
             "bads": []
         },
         "sub-07": {
-            "bads": [
-                "FC6"
-            ]
+            "bads": []
         },
         "sub-08": {
             "bads": []
@@ -113,17 +111,17 @@
             "bads": []
         },
         "sub-10": {
-            "bads": [
-                "O1",
-                "O2",
-                "Oz"
-            ]
+            "bads": []
         },
         "sub-11": {
             "bads": []
         },
         "sub-12": {
-            "bads": []
+            "bads": [
+                "O1",
+                "O2",
+                "Oz"
+            ]
         },
         "sub-13": {
             "bads": []
@@ -135,7 +133,9 @@
             "bads": []
         },
         "sub-16": {
-            "bads": []
+            "bads": [
+                "CP1"
+            ]
         },
         "sub-17": {
             "bads": []
@@ -159,9 +159,7 @@
             "bads": []
         },
         "sub-24": {
-            "bads": [
-                "Cz"
-            ]
+            "bads": []
         },
         "sub-25": {
             "bads": []
@@ -170,8 +168,6 @@
             "bads": []
         }
     },
-    "sfreq": 500.0,
-    "n_channels": 28,
     "ch_names": [
         "Fp1",
         "Fz",
@@ -202,6 +198,8 @@
         "F8",
         "Fp2"
     ],
+    "sfreq": 500.0,
+    "n_channels": 28,
     "eeg_ch_names": [
         "Fp1",
         "Fz",
@@ -232,9 +230,6 @@
         "F8",
         "Fp2"
     ],
-    "win_len": 2601,
-    "n_feats": 2464,
-    "time_per_sample": 12.5049147605896,
     "feat_names": [
         "mean_Fp1",
         "mean_Fz",
@@ -2700,5 +2695,8 @@
         "spect_corr_F4",
         "spect_corr_F8",
         "spect_corr_Fp2"
-    ]
+    ],
+    "win_len": 2601,
+    "n_feats": 2464,
+    "time_per_sample": 8.367146492004395
 }

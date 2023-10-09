@@ -44,3 +44,6 @@ Change relabel function in pipeline. Rerun pipeline.
 # 06 Oct
 Bad channel visual inspection from 5-second epochs.
 Create condition classification pipeline.
+
+# 09 Oct
+Presented results to supervisor. Conc: Let dataset die.
