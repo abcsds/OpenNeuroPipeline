@@ -312,7 +312,7 @@ class ONPipeline:
                     np.save(label_file, labels)
             
             # Split data into train and test sets (adjust as needed)
-            X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, labels, test_size=0.25, random_state=42)
+            X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, labels, test_size=0.25, random_state=settings["rs"])
             
             # Train and evaluate models
             # model_names = ["LogisticRegression", "SVM", "LDA", "RandomForest"]

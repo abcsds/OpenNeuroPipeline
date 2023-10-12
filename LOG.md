@@ -47,3 +47,24 @@ Create condition classification pipeline.
 
 # 09 Oct
 Presented results to supervisor. Conc: Let dataset die.
+
+# 10 Oct
+Run pipeline with 1 sec window, just to close by reproducing last results.
+Branch for generalization.
+
+# 11 Oct
+Results improved largely.
+Recovering suggestions from meeting:
+
+- Eye artifact removal: Clemens mentioned they use a semi-automatic algorithm. 
+- Try 1 baseline from before the RSVP start.
+- Difference waves between conditions
+- Are there NaNs? why is LDA not working?
+- **Classify HAPV grouped by experimental conditon**: This is the main experiment for the research question
+- Maybe look at shorter windows, and a combination of labels? Re-try window optimization.
+
+# 12 Oct
+Update random state to be taken from settings.
+Pipeline is still running. Add pipeline for classification by condition.
+Add permutation tests: Models are evaluated with 5 different metrics for the test set. Then the labels are shuffled and the model evaluated to generate a null hypothesis distribution. Scores are bootstrapped and plotted.
+Add report by experimental condition.

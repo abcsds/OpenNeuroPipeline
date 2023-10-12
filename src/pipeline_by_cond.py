@@ -25,7 +25,7 @@ from sklearn.svm import SVC
 
 
 class ONPipeline:
-    def __init__(self, dataset_id, settings, download_path="./data", relabel_func=None):
+    def __init__(self, dataset_id, settings, download_path="./data", relabel_func=None, experimental_condition=None):
         # Download participant data
         self.download_path = download_path
         # if os.path.exists(download_path):
@@ -39,6 +39,9 @@ class ONPipeline:
             self.relabel_func = relabel_func
         # Define settings
         self.settings = settings
+
+        if experimental_condition:
+            self.experimental_condition = experimental_condition
 
 
     # Define EEG file processing functions
@@ -68,7 +71,7 @@ class ONPipeline:
         #     drop_refs=True,  # drop anode and cathode from the data
         #     copy=False  # modify in-place
         # )
-        # raw = raw.drop_channels(["EOGD", "EOGU", "EOGL", "EOGR"])
+        # raw.drop_channels(["EOGD", "EOGU", "EOGL", "EOGR"])
         # raw.set_channel_types({"HEOG": "eog", "VEOG": "eog"})
         # eog_epochs = mne.preprocessing.create_eog_epochs(raw, baseline=(-0.5, -0.2), ch_name=["EOGU", "EOGD"], reject_by_annotation=False)
         
@@ -101,7 +104,9 @@ class ONPipeline:
         assert len(events) == len(set(i["onset"] for i in raw.annotations)), f"Annotations share onset {eeg_file}"
         assert np.abs(np.diff([i["onset"] for i in raw.annotations])).min() > 0.0, f"Annotations share onset {eeg_file}"
 
-        if self.relabel_func:
+        if self.relabel_func and self.experimental_condition:
+            events, event_dict = self.relabel_func(events, event_dict, experimental_condition=self.experimental_condition)
+        elif self.relabel_func:
             events, event_dict = self.relabel_func(events, event_dict)
 
         epochs = mne.Epochs(raw, events,
@@ -159,7 +164,10 @@ class ONPipeline:
             raise ValueError("Invalid model name")
         
         # Define Optuna study
-        study = optuna.create_study(direction="maximize", study_name=model_name+"_"+subj, storage=f"sqlite:///experiments.db", load_if_exists=True)
+        if self.experimental_condition:
+            study = optuna.create_study(direction="maximize", study_name=model_name+"_"+subj, storage=f"sqlite:///experiments_{self.experimental_condition}.db", load_if_exists=True)
+        else:
+            study = optuna.create_study(direction="maximize", study_name=model_name+"_"+subj, storage=f"sqlite:///experiments.db", load_if_exists=True)
         
         # Define hyperparameter search space (customize for each model)
         if model_name == "LogisticRegression":
@@ -363,21 +371,24 @@ class ONPipeline:
 
 
 # Re-labeling function: Used to edit the markers in the EEG data
-def relabel(events, event_dict):
+def relabel(events, event_dict, experimental_condition):
     e = events.copy()
     reverse_event_dict = {v: k for k,v in event_dict.items()}
     labels = [reverse_event_dict[i] for i in events[:,2]]
     # Remove all events that are not experimental conditions
     idx = [True if "/" in label else False for label in labels]
     e = e[idx,:]
+    # Select only the experimental condition
+    idx = [True if label.split("/")[0]==experimental_condition else False for label in labels]
+    e = e[idx,:]
     # Tag all HAPV events as 1 and Rest events as 0
     labels = [reverse_event_dict[i] for i in e[:,2]]
     idx = []
     for label in labels:
-        if label.split("/")[1]=="1": # Select HAPV
-            idx.append(True)
+        if  label.split("/")[1]=="1":
+            idx.append(1)
         else:
-            idx.append(False)
+            idx.append(0)
     l = {"HAPV":1, "Rest":0}
     idx = np.array(idx)
     e[idx,2] = l["HAPV"]
@@ -385,96 +396,98 @@ def relabel(events, event_dict):
     return e, l
 
 if __name__ == "__main__":
-    # Define EEG data processing settings
-    settings = {
-        "rs": 42,
-        "store_models": True,
-        "store_features": True,
-        "light_storage": False,
-        "l_freq": 0.1, 
-        "h_freq": 30,
-        "notch_filter": 50,
-        "CAR": True,
-        "bads": [],
-        "outf": "./results/",
-        # "eeg_channels": ['Fp1', 'Fz', 'F3', 'F7', 'FC5', 'FC1', 'Cz', 'C3', 'T7', 'CP5', 'CP1', 'P3', 'P7', 'Pz', 'O1', 'Oz', 'O2', 'P4', 'P8', 'CP6', 'CP2', 'C4', 'T8', 'FC6', 'FC2', 'F4', 'F8', 'Fp2']
-        "drop_channels": ["EOGD", "EOGU", "EOGL", "EOGR", 'ECG', 'GSR', 'x_dir', 'y_dir', 'z_dir', 'MkIdx'],
-        "eog_channels": ["EOGU", "EOGD", "EOGL", "EOGR"],
-        "stim_channels": ["MkIdx"],
-        "ecg_channels": ["ECG"],
-        "misc_channels": ["GSR", "x_dir", "y_dir", "z_dir"],
-        "montage": "standard_1020",
-        # Window
-        "tmin": -0.2,
-        "tmax": 5.0,
-        "baseline": [-0.2, 0.0],
-        "reject_criteria": dict(eeg=500e-6),
-        "flat_criteria": dict(eeg=1e-7),
-        # Features
-        "selected_feats": [
-            "mean",  # chnn,
-            "variance",  # chnn,
-            "std",  # chnn,
-            "ptp_amp",  # chnn,
-            "skewness",  # chnn,
-            "kurtosis",  # chnn,
-            "rms",  # chnn,
-            "quantile",  # chnn,
-            "hurst_exp",  # chnn,
-            "app_entropy",  # chnn,
-            "samp_entropy",  # chnn,
-            "decorr_time",  # chnn,
-            "pow_freq_bands",  # band_ch,
-            "hjorth_mobility",  # chnn,
-            "hjorth_complexity",  # chnn,
-            "higuchi_fd",  # chnn,
-            "katz_fd",  # chnn,
-            "zero_crossings",  # chnn,
-            "line_length",  # chnn,
-            "spect_entropy",  # chnn,
-            "svd_entropy",  # chnn,
-            "svd_fisher_info",  # chnn,
-            "energy_freq_bands",  # band_ch,
-            "spect_edge_freq",  # chnn,
-            # "wavelet_coef_energy",  # band_ch, + chnn
-            # "teager_kaiser_energy",  # band_ch * 2 + 2,
-            # Bivariate
-            "max_cross_corr",  # mv_chs_no_self,
-            "phase_lock_val",  # mv_chs_no_self,
-            # "nonlin_interdep",  # mv_chs_no_self, # Takes too long
-            "time_corr",  # mv_chs,
-            "spect_corr",  # mv_chs,
-            ],
-            "subj": {
-                'sub-01':{"bads": []},
-                'sub-02':{"bads": []},
-                'sub-03':{"bads": []},
-                'sub-04':{"bads": []},
-                'sub-05':{"bads": []},
-                'sub-06':{"bads": []},
-                'sub-07':{"bads": []},
-                'sub-08':{"bads": []},
-                'sub-09':{"bads": []},
-                'sub-10':{"bads": []},
-                'sub-11':{"bads": []},
-                'sub-12':{"bads": ["O1", "O2", "Oz"]},
-                'sub-13':{"bads": []},
-                'sub-14':{"bads": []},
-                'sub-15':{"bads": []},
-                'sub-16':{"bads": ["CP1"]},
-                'sub-17':{"bads": []},
-                'sub-18':{"bads": []},
-                'sub-19':{"bads": []},
-                'sub-20':{"bads": []},
-                'sub-21':{"bads": []},
-                'sub-22':{"bads": []},
-                'sub-23':{"bads": []},
-                'sub-24':{"bads": []},
-                'sub-25':{"bads": []},
-                'sub-26':{"bads": []}
+    for experimental_condition in ["img", "sf", "toon"]:
+        print(f"Running pipeline for {experimental_condition}...")
+        # Define EEG data processing settings
+        settings = {
+            "rs": 42,
+            "store_models": True,
+            "store_features": True,
+            "light_storage": False,
+            "l_freq": 0.1, 
+            "h_freq": 30,
+            "notch_filter": 50,
+            "CAR": True,
+            "bads": [],
+            "outf": f"./results_{experimental_condition}/",
+            # "eeg_channels": ['Fp1', 'Fz', 'F3', 'F7', 'FC5', 'FC1', 'Cz', 'C3', 'T7', 'CP5', 'CP1', 'P3', 'P7', 'Pz', 'O1', 'Oz', 'O2', 'P4', 'P8', 'CP6', 'CP2', 'C4', 'T8', 'FC6', 'FC2', 'F4', 'F8', 'Fp2']
+            "drop_channels": ["EOGD", "EOGU", "EOGL", "EOGR", 'ECG', 'GSR', 'x_dir', 'y_dir', 'z_dir', 'MkIdx'],
+            "eog_channels": ["EOGU", "EOGD", "EOGL", "EOGR"],
+            "stim_channels": ["MkIdx"],
+            "ecg_channels": ["ECG"],
+            "misc_channels": ["GSR", "x_dir", "y_dir", "z_dir"],
+            "montage": "standard_1020",
+            # Window
+            "tmin": -0.2,
+            "tmax": 5.0,
+            "baseline": [-0.2, 0.0],
+            "reject_criteria": dict(eeg=500e-6),
+            "flat_criteria": dict(eeg=1e-7),
+            # Features
+            "selected_feats": [
+                "mean",  # chnn,
+                "variance",  # chnn,
+                "std",  # chnn,
+                "ptp_amp",  # chnn,
+                "skewness",  # chnn,
+                "kurtosis",  # chnn,
+                "rms",  # chnn,
+                "quantile",  # chnn,
+                "hurst_exp",  # chnn,
+                "app_entropy",  # chnn,
+                "samp_entropy",  # chnn,
+                "decorr_time",  # chnn,
+                "pow_freq_bands",  # band_ch,
+                "hjorth_mobility",  # chnn,
+                "hjorth_complexity",  # chnn,
+                "higuchi_fd",  # chnn,
+                "katz_fd",  # chnn,
+                "zero_crossings",  # chnn,
+                "line_length",  # chnn,
+                "spect_entropy",  # chnn,
+                "svd_entropy",  # chnn,
+                "svd_fisher_info",  # chnn,
+                "energy_freq_bands",  # band_ch,
+                "spect_edge_freq",  # chnn,
+                # "wavelet_coef_energy",  # band_ch, + chnn
+                # "teager_kaiser_energy",  # band_ch * 2 + 2,
+                # Bivariate
+                "max_cross_corr",  # mv_chs_no_self,
+                "phase_lock_val",  # mv_chs_no_self,
+                # "nonlin_interdep",  # mv_chs_no_self, # Takes too long
+                "time_corr",  # mv_chs,
+                "spect_corr",  # mv_chs,
+                ],
+                "subj": {
+                    'sub-01':{"bads": []},
+                    'sub-02':{"bads": []},
+                    'sub-03':{"bads": []},
+                    'sub-04':{"bads": []},
+                    'sub-05':{"bads": []},
+                    'sub-06':{"bads": []},
+                    'sub-07':{"bads": []},
+                    'sub-08':{"bads": []},
+                    'sub-09':{"bads": []},
+                    'sub-10':{"bads": []},
+                    'sub-11':{"bads": []},
+                    'sub-12':{"bads": ["O1", "O2", "Oz"]},
+                    'sub-13':{"bads": []},
+                    'sub-14':{"bads": []},
+                    'sub-15':{"bads": []},
+                    'sub-16':{"bads": ["CP1"]},
+                    'sub-17':{"bads": []},
+                    'sub-18':{"bads": []},
+                    'sub-19':{"bads": []},
+                    'sub-20':{"bads": []},
+                    'sub-21':{"bads": []},
+                    'sub-22':{"bads": []},
+                    'sub-23':{"bads": []},
+                    'sub-24':{"bads": []},
+                    'sub-25':{"bads": []},
+                    'sub-26':{"bads": []}
+                }
             }
-        }
-    # Define the dataset ID and download path
-    dataset_id = "ds004324"
-    pipe = ONPipeline(dataset_id, settings, relabel_func=relabel)
-    pipe.run()
+        # Define the dataset ID and download path
+        dataset_id = "ds004324"
+        pipe = ONPipeline(dataset_id, settings, relabel_func=relabel, experimental_condition=experimental_condition)
+        pipe.run()
