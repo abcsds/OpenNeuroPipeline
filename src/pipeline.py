@@ -284,6 +284,8 @@ class ONPipeline:
     def run(self):
         # Iterate over subjects and download/process EEG data
         for subject in self.subjects:
+            if subject not in self.settings["skip_subj"]:
+                continue
             feat_file = os.path.join(self.settings["outf"], "features", f"features_{subject}.npy")
             label_file = os.path.join(self.settings["outf"], "features", f"labels_{subject}.npy")
             eeg_file = f"{subject}/ses-01/eeg/{subject}_ses-01_task-RSVP_run-01_eeg.edf"
@@ -472,7 +474,9 @@ if __name__ == "__main__":
                 'sub-24':{"bads": []},
                 'sub-25':{"bads": []},
                 'sub-26':{"bads": []}
-            }
+            },
+            "skip_subj": ['sub-02'], # FIXME: temporary for SVC training.
+            
         }
     # Define the dataset ID and download path
     dataset_id = "ds004324"
